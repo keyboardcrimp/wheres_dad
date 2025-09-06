@@ -4,19 +4,18 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Kilimanjaro — Lemosho Route Family Tracker</title>
-  <link rel="preconnect" href="https://unpkg.com" crossorigin>
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <style>
-    :root{ --bg:#0b1020;--card:#161c2f;--muted:#aab3cf;--accent:#6ee7ff;--accent2:#fbbf24; }
+    :root{ --bg:#0b1020; --card:#0e1528; --muted:#aab3cf; --accent:#6ee7ff; --accent2:#fbbf24; }
     *{box-sizing:border-box}
     body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Inter,Helvetica,Arial,sans-serif;background:linear-gradient(180deg,#0b1020,#0e1330);color:#eaf1ff}
     header{padding:16px 20px;border-bottom:1px solid rgba(255,255,255,.08);display:flex;gap:14px;align-items:center;flex-wrap:wrap}
-    header h1{font-size:20px;margin:0;letter-spacing:.2px}
+    header h1{font-size:20px;margin:0}
     .wrap{display:grid;grid-template-columns:380px 1fr;gap:14px;height:calc(100vh - 70px)}
-    @media (max-width: 980px){.wrap{grid-template-columns:1fr;grid-template-rows:auto 1fr;height:auto}}
-    aside{padding:16px;overflow:auto;background:#0e1528;border-right:1px solid rgba(255,255,255,.06)}
-    .card{background:#0e1528;border:1px solid rgba(255,255,255,.08);border-radius:16px;padding:14px;margin-bottom:12px;box-shadow:0 6px 24px rgba(0,0,0,.25)}
+    @media (max-width:980px){.wrap{grid-template-columns:1fr;grid-template-rows:auto 1fr;height:auto}}
+    aside{padding:16px;overflow:auto;background:var(--card);border-right:1px solid rgba(255,255,255,.06)}
+    .card{background:var(--card);border:1px solid rgba(255,255,255,.08);border-radius:16px;padding:14px;margin-bottom:12px;box-shadow:0 6px 24px rgba(0,0,0,.25)}
     .row{display:flex;gap:10px;align-items:end;flex-wrap:wrap}
     label{font-size:12px;color:var(--muted);display:block;margin-bottom:6px}
     input,select,button{background:#0c1326;border:1px solid rgba(255,255,255,.12);color:#eaf1ff;border-radius:10px;padding:10px 12px;font-size:14px}
@@ -28,6 +27,7 @@
     .legend{position:absolute;right:14px;bottom:14px;background:#0e1528;border:1px solid rgba(255,255,255,.12);padding:10px 12px;border-radius:12px;font-size:12px;color:#cbd5e1}
     .stage{padding:8px 10px;border-radius:10px;border:1px solid rgba(255,255,255,.08);margin:6px 0;cursor:pointer}
     .stage.current{border-color:var(--accent2);box-shadow:0 0 0 2px rgba(251,191,36,.25) inset}
+    .stage.past{opacity:.75}
     .stage small{color:#9fb0d4}
     .progressbar{height:8px;background:#0b1328;border:1px solid rgba(255,255,255,.08);border-radius:999px;overflow:hidden;margin-top:8px}
     .progressbar>span{display:block;height:100%;background:linear-gradient(90deg,#34d399,#8b5cf6);width:0%}
@@ -37,7 +37,7 @@
 <body>
   <header>
     <h1>🗻 Kilimanjaro — Lemosho Route Family Tracker</h1>
-    <span class="pill">Live red dot • local walking times</span>
+    <span class="pill">Red dot = <b>today</b> only • local walking times</span>
   </header>
   <div class="wrap">
     <aside>
@@ -60,45 +60,43 @@
             <button class="btn" id="go">Update</button>
           </div>
         </div>
-        <div class="muted" style="margin-top:8px">The red dot sits on the start camp before the walking window, moves along the leg during it, and parks on the destination camp after.</div>
+        <div class="muted" style="margin-top:8px">Clicking other days just highlights that leg; the red dot stays on <b>today’s</b> leg and parks at the start or end camp outside the walking window.</div>
         <div class="progressbar" title="Overall progress"><span id="pbar"></span></div>
         <div class="foot" id="status"></div>
       </div>
       <div class="card">
-        <div style="font-weight:600;margin-bottom:6px">Itinerary (Lemosho 8-day climb)</div>
+        <div style="font-weight:600;margin-bottom:6px">Itinerary (Lemosho 8‑day climb)</div>
         <div id="stages"></div>
       </div>
       <div class="card muted">Approximate coordinates only; routes can vary. Click any day to highlight that leg.</div>
     </aside>
     <main>
       <div id="map"></div>
-      <div class="legend">Tap markers • Red dot ≈ current position for active day • Auto-updates</div>
+      <div class="legend">Tap markers • Red dot ≈ today’s position • Auto-updates every 30s</div>
     </main>
   </div>
 
 <script>
-// === Config ===
+// ====== Config ======
 const DEFAULT_TZ = 'Africa/Dar_es_Salaam';
 const DAY_START_LOCAL_HOUR = 8;     // assume ~08:00 local start
 const UPDATE_MS = 30000;            // red dot refresh
 
-// --- Points (approximate) ---
+// ====== Data ======
 const POINTS = [
-  { key:'londorossi_gate', name:'Londorossi Gate', lat:-2.96193, lng:37.13503, elev_m:2100 },
-  { key:'lemosho_gate', name:'Lemosho Gate', lat:-3.00195, lng:37.14463, elev_m:2356 },
-  { key:'mti_mkubwa', name:'Mti Mkubwa (Big Tree) Camp', lat:-2.99674, lng:37.17520, elev_m:2790 },
-  { key:'shira1', name:'Shira 1 Camp', lat:-3.012632, lng:37.229375, elev_m:3510 },
-  { key:'moir_hut', name:'Moir Hut', lat:-3.04252, lng:37.29971, elev_m:4160 },
-  { key:'lava_tower', name:'Lava Tower', lat:-3.06834, lng:37.32717, elev_m:4630 },
-  { key:'barranco', name:'Barranco Camp', lat:-3.09515, lng:37.32964, elev_m:3970 },
-  { key:'karanga', name:'Karanga Camp', lat:-3.11274, lng:37.35498, elev_m:3961 },
-  { key:'barafu', name:'Barafu Camp', lat:-3.09987, lng:37.37858, elev_m:4670 },
-  { key:'uhuru', name:'Uhuru Peak', lat:-3.076448, lng:37.354034, elev_m:5895 },
-  { key:'mweka_camp', name:'Mweka Camp', lat:-3.15695, lng:37.36709, elev_m:3063 },
-  { key:'mweka_gate', name:'Mweka Gate', lat:-3.21961, lng:37.34131, elev_m:1637 }
+  { key:'londorossi_gate', name:'Londorossi Gate', lat:-2.96193, lng:37.13503 },
+  { key:'mti_mkubwa',      name:'Mti Mkubwa (Big Tree) Camp', lat:-2.99674, lng:37.17520 },
+  { key:'shira1',          name:'Shira 1 Camp', lat:-3.012632, lng:37.229375 },
+  { key:'moir_hut',        name:'Moir Hut', lat:-3.04252, lng:37.29971 },
+  { key:'lava_tower',      name:'Lava Tower', lat:-3.06834, lng:37.32717 },
+  { key:'barranco',        name:'Barranco Camp', lat:-3.09515, lng:37.32964 },
+  { key:'karanga',         name:'Karanga Camp', lat:-3.11274, lng:37.35498 },
+  { key:'barafu',          name:'Barafu Camp', lat:-3.09987, lng:37.37858 },
+  { key:'uhuru',           name:'Uhuru Peak', lat:-3.076448, lng:37.354034 },
+  { key:'mweka_camp',      name:'Mweka Camp', lat:-3.15695, lng:37.36709 },
+  { key:'mweka_gate',      name:'Mweka Gate', lat:-3.21961, lng:37.34131 }
 ];
 
-// --- Itinerary ---
 const ITINERARY = [
   { day:3,  title:'Londorossi ➜ Mti Mkubwa',           from:'londorossi_gate', to:'mti_mkubwa',   distance_km:6,  time_h:'3–4',  habitat:'Rain Forest' },
   { day:4,  title:'Mti Mkubwa ➜ Shira 1',              from:'mti_mkubwa',      to:'shira1',      distance_km:8,  time_h:'5–6',  habitat:'Heath/Moorland' },
@@ -112,108 +110,88 @@ const ITINERARY = [
 
 const P = Object.fromEntries(POINTS.map(p=>[p.key,p]));
 
-// --- Time helpers ---
+// ====== Time helpers ======
 function tzOffsetHours(tz){
-  if(tz === 'Africa/Dar_es_Salaam') return 3;
-  if(tz === 'Europe/London'){
-    try{
-      const jul = new Date(Date.UTC(new Date().getUTCFullYear(),6,1));
-      const fmt = new Intl.DateTimeFormat('en-GB',{timeZone:tz,timeZoneName:'short'});
-      return fmt.format(jul).includes('BST') ? 1 : 0;
-    } catch { return 0; }
+  if(tz==='Africa/Dar_es_Salaam') return 3;
+  if(tz==='Europe/London'){
+    try{ const jul=new Date(Date.UTC(new Date().getUTCFullYear(),6,1)); const fmt=new Intl.DateTimeFormat('en-GB',{timeZone:tz,timeZoneName:'short'}); return fmt.format(jul).includes('BST')?1:0; }catch{ return 0; }
   }
-  if(tz === 'local') return -new Date().getTimezoneOffset()/60;
+  if(tz==='local') return -new Date().getTimezoneOffset()/60;
   return 3;
 }
-function makeLocalDateUTC(year,month,day,hour,minute,tz){
+function makeLocalDateUTC(y,m,d,h,min,tz){
   const off = tzOffsetHours(tz); // Local = UTC + off => UTC = Local - off
-  return new Date(Date.UTC(year,month,day,hour - off,minute,0));
+  return new Date(Date.UTC(y,m,d,h-off,min,0));
 }
-function fmtLocal(dtUTC, tz){
-  return new Intl.DateTimeFormat(undefined,{hour:'2-digit',minute:'2-digit',timeZone:tz}).format(dtUTC);
-}
-function parseAvgHours(s){
-  const m=(s+'').replace(/\s/g,'').match(/(\d+(?:\.\d+)?)[–-](\d+(?:\.\d+)?)/);
-  if(m){ return (parseFloat(m[1])+parseFloat(m[2]))/2; }
-  const v=parseFloat(s); return isFinite(v)?v:5;
-}
+function fmtLocal(dtUTC,tz){ return new Intl.DateTimeFormat(undefined,{hour:'2-digit',minute:'2-digit',timeZone:tz}).format(dtUTC); }
+function formatDateInTZ(dtUTC,tz){ return new Intl.DateTimeFormat(undefined,{timeZone:tz, weekday:'short', day:'numeric', month:'short', year:'numeric'}).format(dtUTC); }
+function parseAvgHours(s){ const m=(s+'').replace(/\s/g,'').match(/(\d+(?:\.\d+)?)[–-](\d+(?:\.\d+)?)/); if(m){return (parseFloat(m[1])+parseFloat(m[2]))/2;} const v=parseFloat(s); return isFinite(v)?v:5; }
 
-// --- Map ---
-const map = L.map('map', { zoomControl:true, attributionControl:true });
+// ====== Map ======
+const map = L.map('map');
 L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom:18, attribution:'&copy; OpenStreetMap contributors' }).addTo(map);
 
-// Dedicated pane so the red dot always draws above everything
+// red dot pane so it always floats above
 map.createPane('dotPane');
-map.getPane('dotPane').style.zIndex = 650; // above polylines/markers, below popups
+map.getPane('dotPane').style.zIndex = 650;
 
-(function fitInitial(){
-  const latlngs = ITINERARY.flatMap(s=>[P[s.from], s.via?P[s.via]:null, P[s.to]].filter(Boolean)).map(p=>[p.lat,p.lng]);
-  map.fitBounds(L.latLngBounds(latlngs).pad(0.15));
-})();
-
+// draw whole route and fit
 const routeLayers = [];
 ITINERARY.forEach(s=>{
-  const seg = [];
-  seg.push([P[s.from].lat, P[s.from].lng]);
-  if(s.via) seg.push([P[s.via].lat, P[s.via].lng]);
-  seg.push([P[s.to].lat, P[s.to].lng]);
+  const seg = [P[s.from], s.via?P[s.via]:null, P[s.to]].filter(Boolean).map(p=>[p.lat,p.lng]);
   const pl = L.polyline(seg, { color:'#7fd3ff', weight:4, opacity:0.8 }).addTo(map);
   routeLayers.push(pl);
 });
+(function fitInitial(){
+  const latlngs = routeLayers.flatMap(pl=>pl.getLatLngs());
+  map.fitBounds(L.latLngBounds(latlngs).pad(0.15));
+})();
 
+// camp markers
 const markers = [];
 POINTS.forEach(pt=>{
   const m = L.circleMarker([pt.lat,pt.lng], { radius:6, color:'#6ee7ff', weight:2, fill:true, fillOpacity:0.7 }).addTo(map);
-  m.bindPopup(`<b>${pt.name}</b><br/>Elev ~${pt.elev_m?pt.elev_m.toLocaleString():"?"} m`);
+  m.bindPopup(`<b>${pt.name}</b>`);
   markers.push({ key:pt.key, layer:m });
 });
 
-// Live red dot (on its own pane)
-const redDot = L.circleMarker([0,0], {
-  pane:'dotPane',
-  radius:9,
-  color:'#ff4d4d',
-  weight:3,
-  fill:true,
-  fillOpacity:0.95
-}).addTo(map);
+// live red dot (today only)
+const redDot = L.circleMarker([0,0], { pane:'dotPane', radius:9, color:'#ff4d4d', weight:3, fill:true, fillOpacity:0.95 }).addTo(map);
 
-let activeStageIdx = 0;
+// ====== UI state ======
+let highlightIdx = 0;   // which leg is highlighted in the sidebar/map
+let todayIdx = 0;       // which leg is considered "today" (drives the red dot)
 
-// --- Sidebar & date logic ---
 const stagesEl = document.getElementById('stages');
 const statusEl = document.getElementById('status');
 const pbar = document.getElementById('pbar');
 const tzSel = document.getElementById('tz');
 const startInput = document.getElementById('start');
 
-function ensureDateOnlyUTC(date){ return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate())); }
-function formatDate(d){ return d.toLocaleDateString(undefined,{weekday:'short', day:'numeric', month:'short', year:'numeric'}); }
-
 function buildStages(startUTC){
-  stagesEl.innerHTML = '';
+  const tz = tzSel.value || DEFAULT_TZ;
+  stagesEl.innerHTML='';
   ITINERARY.forEach((s, idx)=>{
-    const dayDateUTC = new Date(startUTC.getTime() + idx*86400000);
-    const tz = tzSel.value || DEFAULT_TZ;
-    const startLocalUTC = makeLocalDateUTC(dayDateUTC.getUTCFullYear(), dayDateUTC.getUTCMonth(), dayDateUTC.getUTCDate(), DAY_START_LOCAL_HOUR, 0, tz);
+    const dayLocalStartUTC = makeLocalDateUTC(startUTC.getUTCFullYear(), startUTC.getUTCMonth(), startUTC.getUTCDate()+idx, DAY_START_LOCAL_HOUR, 0, tz);
     const durH = parseAvgHours(s.time_h);
-    const endLocalUTC = new Date(startLocalUTC.getTime() + durH*3600*1000);
+    const dayLocalEndUTC = new Date(dayLocalStartUTC.getTime()+durH*3600*1000);
 
     const el = document.createElement('div');
     el.className = 'stage';
-    el.dataset.day = s.day; el.dataset.idx = idx;
+    if(idx < todayIdx) el.classList.add('past');
+    if(idx === highlightIdx) el.classList.add('current');
+    el.dataset.idx = idx;
     el.innerHTML = `<div style="display:flex;justify-content:space-between;gap:8px;align-items:baseline">
-      <div><b>Day ${s.day}</b> · ${s.title}</div>
-      <small>${formatDate(dayDateUTC)}</small>
+      <div><b>Day ${ITINERARY[idx].day}</b> · ${s.title}</div>
+      <small>${formatDateInTZ(dayLocalStartUTC, tz)}</small>
     </div>
-    <small class="muted">${s.distance_km} km • ${s.time_h} h • ${s.habitat}</small>
-    <div class="foot">Local window: <b>${fmtLocal(startLocalUTC,tz)}–${fmtLocal(endLocalUTC,tz)}</b> (${tz.replace('_',' ')})</div>`;
+    <small class="muted">${s.distance_km} km • ${s.time_h} h • ${s.habitat||''}</small>
+    <div class="foot">Local window: <b>${fmtLocal(dayLocalStartUTC,tz)}–${fmtLocal(dayLocalEndUTC,tz)}</b> (${tz.replace('_',' ')})</div>`;
 
     el.addEventListener('click',()=>{
-      activeStageIdx = idx; updateHighlight(startUTC);
-      const cur = ITINERARY[activeStageIdx];
-      const pts = [P[cur.from], cur.via?P[cur.via]:null, P[cur.to]].filter(Boolean).map(p=>[p.lat,p.lng]);
-      map.fitBounds(L.latLngBounds(pts).pad(0.25));
+      highlightIdx = idx; updateHighlight(startUTC);
+      const seg = routeLayers[idx];
+      map.fitBounds(seg.getBounds().pad(0.25));
       scrollStageIntoView(idx);
     });
 
@@ -221,93 +199,94 @@ function buildStages(startUTC){
   });
 }
 
-function scrollStageIntoView(idx){ const el = stagesEl.children[idx]; if(el && el.scrollIntoView) el.scrollIntoView({behavior:'smooth', block:'center'}); }
-function setSidebarState(idx){ Array.from(stagesEl.children).forEach((c,i)=>c.classList.toggle('current', i===idx)); }
+function scrollStageIntoView(idx){ const el=stagesEl.children[idx]; if(el&&el.scrollIntoView) el.scrollIntoView({behavior:'smooth',block:'center'}); }
+function setSidebarState(){ Array.from(stagesEl.children).forEach((c,i)=>{ c.classList.toggle('current', i===highlightIdx); c.classList.toggle('past', i<todayIdx); }); }
 
-// distance + interpolation helpers
-function haversine(a,b){ const R=6371000; const toRad=x=>x*Math.PI/180; const dLat=toRad(b[0]-a[0]); const dLng=toRad(b[1]-a[1]); const lat1=toRad(a[0]); const lat2=toRad(b[0]); const h=Math.sin(dLat/2)**2 + Math.cos(lat1)*Math.cos(lat2)*Math.sin(dLng/2)**2; return 2*R*Math.asin(Math.sqrt(h)); }
-function interpolatePath(points, t){
-  if(t<=0) return points[0]; if(t>=1) return points[points.length-1];
-  const seglens=[]; let total=0;
-  for(let i=0;i<points.length-1;i++){ const l=haversine(points[i],points[i+1]); seglens.push(l); total+=l; }
-  let d=t*total;
-  for(let i=0;i<seglens.length;i++){
-    if(d<=seglens[i]){ const f=d/seglens[i]; const A=points[i],B=points[i+1]; return [A[0]+(B[0]-A[0])*f, A[1]+(B[1]-A[1])*f]; }
-    d-=seglens[i];
-  }
-  return points[points.length-1];
-}
-function getStageTimeWindowUTC(startUTC, idx, tz){
-  const dayDateUTC = new Date(startUTC.getTime() + idx*86400000);
-  const startLocalUTC = makeLocalDateUTC(dayDateUTC.getUTCFullYear(), dayDateUTC.getUTCMonth(), dayDateUTC.getUTCDate(), DAY_START_LOCAL_HOUR, 0, tz);
+// distance+interpolation
+function haversine(a,b){const R=6371000;const toRad=x=>x*Math.PI/180;const dLat=toRad(b[0]-a[0]);const dLng=toRad(b[1]-a[1]);const lat1=toRad(a[0]);const lat2=toRad(b[0]);const h=Math.sin(dLat/2)**2+Math.cos(lat1)*Math.cos(lat2)*Math.sin(dLng/2)**2;return 2*R*Math.asin(Math.sqrt(h));}
+function interpolatePath(points,t){ if(t<=0)return points[0]; if(t>=1)return points[points.length-1]; const seglens=[]; let total=0; for(let i=0;i<points.length-1;i++){const l=haversine(points[i],points[i+1]);seglens.push(l);total+=l;} let d=t*total; for(let i=0;i<seglens.length;i++){ if(d<=seglens[i]){ const f=d/seglens[i]; const A=points[i],B=points[i+1]; return [A[0]+(B[0]-A[0])*f, A[1]+(B[1]-A[1])*f]; } d-=seglens[i]; } return points[points.length-1]; }
+
+function getStageWindowUTC(startUTC, idx, tz){
+  const dayLocalStartUTC = makeLocalDateUTC(startUTC.getUTCFullYear(), startUTC.getUTCMonth(), startUTC.getUTCDate()+idx, DAY_START_LOCAL_HOUR, 0, tz);
   const durH = parseAvgHours(ITINERARY[idx].time_h);
-  const endLocalUTC = new Date(startLocalUTC.getTime() + durH*3600*1000);
-  return {startLocalUTC, endLocalUTC};
+  const dayLocalEndUTC = new Date(dayLocalStartUTC.getTime()+durH*3600*1000);
+  return { dayLocalStartUTC, dayLocalEndUTC };
 }
 
 function updateRedDot(startUTC){
-  const tz = tzSel.value || DEFAULT_TZ; const now = new Date();
-  const cur = ITINERARY[activeStageIdx];
+  const tz = tzSel.value || DEFAULT_TZ;
+  const now = new Date();
+  const cur = ITINERARY[todayIdx];
   const pts = [P[cur.from], cur.via?P[cur.via]:null, P[cur.to]].filter(Boolean).map(p=>[p.lat,p.lng]);
-  const {startLocalUTC, endLocalUTC} = getStageTimeWindowUTC(startUTC, activeStageIdx, tz);
+  const { dayLocalStartUTC, dayLocalEndUTC } = getStageWindowUTC(startUTC, todayIdx, tz);
   let pos;
-  if (now <= startLocalUTC) {
-    pos = pts[0]; // parked at start camp
-  } else if (now >= endLocalUTC) {
-    pos = pts[pts.length-1]; // parked at destination camp
-  } else {
-    const t = (now - startLocalUTC) / (endLocalUTC - startLocalUTC);
-    pos = interpolatePath(pts, Math.min(1, Math.max(0, t))); // along the route
+  if(now <= dayLocalStartUTC) pos = pts[0];
+  else if(now >= dayLocalEndUTC) pos = pts[pts.length-1];
+  else {
+    const t = (now - dayLocalStartUTC)/(dayLocalEndUTC - dayLocalStartUTC);
+    pos = interpolatePath(pts, Math.min(1, Math.max(0, t)));
   }
   redDot.setLatLng(pos);
-  if (redDot.bringToFront) redDot.bringToFront();
+  if(redDot.bringToFront) redDot.bringToFront();
 }
 
 function updateHighlight(startUTC){
-  routeLayers.forEach(pl=>pl.setStyle({color:'#7fd3ff', opacity:0.8, weight:4}));
-  markers.forEach(m=>m.layer.setStyle({color:'#6ee7ff', fillOpacity:0.7, radius:6}));
-  routeLayers[activeStageIdx].setStyle({color:'#fbbf24', weight:6, opacity:1});
-  const destKey = ITINERARY[activeStageIdx].to; const destMarker = markers.find(mm=>mm.key===destKey);
-  if(destMarker){ destMarker.layer.setStyle({color:'#fbbf24', fillOpacity:0.95, radius:8}); destMarker.layer.bringToFront(); }
-  setSidebarState(activeStageIdx);
-  updateStatusAndProgress(startUTC);
-  updateRedDot(startUTC);
+  // style routes
+  routeLayers.forEach((pl,i)=>pl.setStyle({color:'#7fd3ff', opacity:0.8, weight:4}));
+  routeLayers[highlightIdx].setStyle({color:'#fbbf24', opacity:1, weight:6});
+  setSidebarState();
+  updateStatus(startUTC);
+  updateRedDot(startUTC); // dot stays on today's leg
 }
 
-function dayIndexForToday(startUTC){
-  const todayUTC = ensureDateOnlyUTC(new Date()); const startDayUTC = ensureDateOnlyUTC(startUTC);
-  const d = Math.floor((todayUTC - startDayUTC)/86400000);
-  if(d < 0) return 0; if(d > ITINERARY.length-1) return ITINERARY.length-1; return d;
+function updateStatus(startUTC){
+  const tz = tzSel.value || DEFAULT_TZ;
+  const today = ITINERARY[todayIdx];
+  const hi = ITINERARY[highlightIdx];
+  const { dayLocalStartUTC: tS, dayLocalEndUTC: tE } = getStageWindowUTC(startUTC, todayIdx, tz);
+  const pct = Math.round(((todayIdx+1)/ITINERARY.length)*100);
+  pbar.style.width = pct + '%';
+  statusEl.innerHTML = `Today: <b>Day ${today.day}</b> · ${today.title} <span class="muted">(${fmtLocal(tS,tz)}–${fmtLocal(tE,tz)} ${tz.replace('_',' ')})</span><br>
+  Highlighted: <b>Day ${hi.day}</b> · ${hi.title}`;
 }
-function updateStatusAndProgress(startUTC){
-  const idx = activeStageIdx; const cur = ITINERARY[idx];
-  const pct = Math.round(((idx+1)/ITINERARY.length)*100); pbar.style.width = pct+"%";
-  statusEl.innerHTML = `Active leg: <b>${cur.title}</b> • focus camp: <b>${P[cur.to].name}</b>`;
+
+function dayIndexForToday(startUTC, tz){
+  // compute now in the selected tz and count whole days since local midnight of Day-3
+  const now = new Date();
+  const startLocalMidnightUTC = makeLocalDateUTC(startUTC.getUTCFullYear(), startUTC.getUTCMonth(), startUTC.getUTCDate(), 0, 0, tz);
+  const diffDays = Math.floor((now - startLocalMidnightUTC)/86400000);
+  if(diffDays < 0) return 0;
+  if(diffDays > ITINERARY.length-1) return ITINERARY.length-1;
+  return diffDays;
 }
 
 function initApp(){
-  const sd = new Date(startInput.value + 'T00:00:00Z'); const startUTC = ensureDateOnlyUTC(sd);
+  const tz = tzSel.value || DEFAULT_TZ;
+  const sd = new Date(startInput.value + 'T00:00:00Z');
+  const startUTC = new Date(Date.UTC(sd.getUTCFullYear(), sd.getUTCMonth(), sd.getUTCDate()));
+
+  // recompute indexes
+  todayIdx = dayIndexForToday(startUTC, tz);
+  highlightIdx = todayIdx;
+
   buildStages(startUTC);
-  activeStageIdx = dayIndexForToday(startUTC);
   updateHighlight(startUTC);
-  scrollStageIntoView(activeStageIdx);
+  scrollStageIntoView(highlightIdx);
+
   if(window._dotTimer) clearInterval(window._dotTimer);
   window._dotTimer = setInterval(()=>updateRedDot(startUTC), UPDATE_MS);
-  document.getElementById('go').onclick = ()=>{ initApp(); };
+
+  document.getElementById('go').onclick = ()=> initApp();
 }
 
-// --------- BOOTSTRAP ---------
-// Optional URL params: ?start=YYYY-MM-DD&tz=Africa/Dar_es_Salaam
+// ====== Bootstrap ======
 (function boot(){
   const url = new URL(location.href);
   const qsStart = url.searchParams.get('start');
   const qsTz = url.searchParams.get('tz');
-
-  // default Day-3 date = today (so user can see UI); override with ?start=...
-  const todayISO = new Date().toISOString().slice(0,10);
-  startInput.value = qsStart || todayISO;
-  document.getElementById('tz').value = qsTz || DEFAULT_TZ;
-
+  // Default to Thu 4 Sep 2025 per your plan; override with ?start=YYYY-MM-DD
+  startInput.value = qsStart || '2025-09-04';
+  tzSel.value = qsTz || DEFAULT_TZ;
   initApp();
 })();
 </script>
